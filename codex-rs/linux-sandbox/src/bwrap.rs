@@ -589,7 +589,11 @@ fn create_filesystem_args(
             .filter(|path| !unreadable_paths.contains(path))
             .filter(|path| !missing_auto_metadata_read_only_project_root_subpaths.contains(path))
             .collect();
-        let protected_metadata_names = writable_root.protected_metadata_names.clone();
+        // Protected metadata masks are descendants and only apply to directory roots.
+        let protected_metadata_names = match fs::metadata(root) {
+            Ok(metadata) if !metadata.is_dir() => Vec::new(),
+            _ => writable_root.protected_metadata_names.clone(),
+        };
         append_metadata_path_masks_for_writable_root(
             &mut read_only_subpaths,
             root,
@@ -1324,6 +1328,10 @@ fn find_first_non_existent_component(target_path: &Path) -> Option<PathBuf> {
 
     None
 }
+
+#[cfg(test)]
+#[path = "bwrap_file_root_tests.rs"]
+mod file_root_tests;
 
 #[cfg(test)]
 mod tests {

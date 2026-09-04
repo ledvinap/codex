@@ -1090,6 +1090,65 @@ test ! -e "$registry"
 }
 
 #[tokio::test]
+async fn sandbox_supports_exact_file_grants() {
+    if should_skip_bwrap_tests().await {
+        eprintln!("skipping bwrap test: bwrap sandbox prerequisites are unavailable");
+        return;
+    }
+
+    let temp = tempfile::tempdir().expect("tempdir");
+    let parent = temp.path().join("parent");
+    std::fs::create_dir(&parent).expect("create parent");
+    let target = parent.join("config.toml");
+    let sibling = parent.join("sibling.txt");
+    std::fs::write(&target, "before\n").expect("write target");
+    std::fs::write(&sibling, "private\n").expect("write sibling");
+    let policy = FileSystemSandboxPolicy::restricted(vec![
+        FileSystemSandboxEntry::new(
+            FileSystemPath::Special {
+                value: FileSystemSpecialPath::Root,
+            },
+            FileSystemAccessMode::Read,
+        ),
+        FileSystemSandboxEntry::new(
+            AbsolutePathBuf::from_absolute_path(&target)
+                .expect("absolute target")
+                .into(),
+            FileSystemAccessMode::Write,
+        ),
+    ]);
+    let output = run_cmd_result_with_permission_profile(
+        &[
+            "sh",
+            "-c",
+            "set -e; test -f \"$1\"; cat \"$1\"; printf 'after\\n' > \"$1\"; cat \"$1\"; if printf 'forbidden\\n' > \"$2\" 2>/dev/null; then exit 42; fi",
+            "sh",
+            target.to_str().expect("target path"),
+            sibling.to_str().expect("sibling path"),
+        ],
+        PermissionProfile::from_runtime_permissions(&policy, NetworkSandboxPolicy::Enabled),
+        LONG_TIMEOUT_MS,
+        /*use_legacy_landlock*/ false,
+    )
+    .await
+    .expect("exact-file sandbox should execute");
+
+    assert_eq!(
+        (output.exit_code, output.stdout.text.as_str()),
+        (0, "before\nafter\n"),
+        "stderr: {}",
+        output.stderr.text
+    );
+    assert_eq!(
+        (
+            std::fs::read_to_string(&target).expect("read target"),
+            std::fs::read_to_string(&sibling).expect("read sibling"),
+        ),
+        ("after\n".to_string(), "private\n".to_string())
+    );
+}
+
+#[tokio::test]
 async fn sandbox_reenables_writable_subpaths_under_unreadable_parents() {
     if should_skip_bwrap_tests().await {
         eprintln!("skipping bwrap test: bwrap sandbox prerequisites are unavailable");
