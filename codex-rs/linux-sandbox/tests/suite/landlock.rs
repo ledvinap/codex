@@ -1101,30 +1101,38 @@ async fn sandbox_supports_exact_file_grants() {
     std::fs::create_dir(&parent).expect("create parent");
     let target = parent.join("config.toml");
     let sibling = parent.join("sibling.txt");
-    std::fs::write(&target, "before\n").expect("write target");
-    std::fs::write(&sibling, "private\n").expect("write sibling");
-    let policy = FileSystemSandboxPolicy::restricted(vec![
-        FileSystemSandboxEntry::new(
-            FileSystemPath::Special {
-                value: FileSystemSpecialPath::Root,
-            },
-            FileSystemAccessMode::Read,
-        ),
-        FileSystemSandboxEntry::new(
-            AbsolutePathBuf::from_absolute_path(&target)
-                .expect("absolute target")
-                .into(),
-            FileSystemAccessMode::Write,
-        ),
-    ]);
-    let output = run_cmd_result_with_permission_profile(
+    for parent_access in [FileSystemAccessMode::Read, FileSystemAccessMode::Deny] {
+        std::fs::write(&target, "before\n").expect("write target");
+        std::fs::write(&sibling, "private\n").expect("write sibling");
+        let policy = FileSystemSandboxPolicy::restricted(vec![
+            FileSystemSandboxEntry::new(
+                FileSystemPath::Special {
+                    value: FileSystemSpecialPath::Root,
+                },
+                FileSystemAccessMode::Read,
+            ),
+            FileSystemSandboxEntry::new(
+                AbsolutePathBuf::from_absolute_path(&parent)
+                    .expect("absolute parent")
+                    .into(),
+                parent_access,
+            ),
+            FileSystemSandboxEntry::new(
+                AbsolutePathBuf::from_absolute_path(&target)
+                    .expect("absolute target")
+                    .into(),
+                FileSystemAccessMode::Write,
+            ),
+        ]);
+        let output = run_cmd_result_with_permission_profile(
         &[
             "sh",
             "-c",
-            "set -e; test -f \"$1\"; cat \"$1\"; printf 'after\\n' > \"$1\"; cat \"$1\"; if printf 'forbidden\\n' > \"$2\" 2>/dev/null; then exit 42; fi",
+            "set -e; test -f \"$1\"; cat \"$1\"; printf 'after\\n' > \"$1\"; cat \"$1\"; if printf 'forbidden\\n' > \"$2\" 2>/dev/null; then exit 42; fi; if [ \"$3\" = deny ]; then if cat \"$2\" 2>/dev/null || ls \"${1%/*}\" 2>/dev/null; then exit 43; fi; fi",
             "sh",
             target.to_str().expect("target path"),
             sibling.to_str().expect("sibling path"),
+            if parent_access == FileSystemAccessMode::Deny { "deny" } else { "read" },
         ],
         PermissionProfile::from_runtime_permissions(&policy, NetworkSandboxPolicy::Enabled),
         LONG_TIMEOUT_MS,
@@ -1133,19 +1141,20 @@ async fn sandbox_supports_exact_file_grants() {
     .await
     .expect("exact-file sandbox should execute");
 
-    assert_eq!(
-        (output.exit_code, output.stdout.text.as_str()),
-        (0, "before\nafter\n"),
-        "stderr: {}",
-        output.stderr.text
-    );
-    assert_eq!(
-        (
-            std::fs::read_to_string(&target).expect("read target"),
-            std::fs::read_to_string(&sibling).expect("read sibling"),
-        ),
-        ("after\n".to_string(), "private\n".to_string())
-    );
+        assert_eq!(
+            (output.exit_code, output.stdout.text.as_str()),
+            (0, "before\nafter\n"),
+            "parent access: {parent_access:?}, stderr: {}",
+            output.stderr.text
+        );
+        assert_eq!(
+            (
+                std::fs::read_to_string(&target).expect("read target"),
+                std::fs::read_to_string(&sibling).expect("read sibling"),
+            ),
+            ("after\n".to_string(), "private\n".to_string())
+        );
+    }
 }
 
 #[tokio::test]
