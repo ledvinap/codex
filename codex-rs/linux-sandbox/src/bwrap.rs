@@ -1253,10 +1253,10 @@ fn append_read_only_subpath_args(
 }
 
 fn append_empty_file_bind_data_args(bwrap_args: &mut BwrapArgs, path: &Path) -> Result<()> {
-    if bwrap_args.preserved_files.is_empty() {
-        bwrap_args.preserved_files.push(File::open("/dev/null")?);
-    }
-    let null_fd = bwrap_args.preserved_files[0].as_raw_fd().to_string();
+    // Bubblewrap closes each --ro-bind-data descriptor after consuming it.
+    let null_file = File::open("/dev/null")?;
+    let null_fd = null_file.as_raw_fd().to_string();
+    bwrap_args.preserved_files.push(null_file);
     bwrap_args.args.push("--ro-bind-data".to_string());
     bwrap_args.args.push(null_fd);
     bwrap_args.args.push(path_to_string(path));
@@ -2847,37 +2847,48 @@ mod tests {
     #[test]
     fn split_policy_masks_root_read_file_carveouts() {
         let temp_dir = TempDir::new().expect("temp dir");
-        let blocked_file = temp_dir.path().join("blocked.txt");
-        std::fs::write(&blocked_file, "secret").expect("create blocked file");
-        let blocked_file =
-            AbsolutePathBuf::from_absolute_path(&blocked_file).expect("absolute blocked file");
-        let policy = FileSystemSandboxPolicy::restricted(vec![
-            FileSystemSandboxEntry {
-                path: FileSystemPath::Special {
-                    value: FileSystemSpecialPath::Root,
-                },
-                access: FileSystemAccessMode::Read,
-                missing_path_behavior: None,
+        let blocked_files = ["blocked-a.txt", "blocked-b.txt"].map(|name| {
+            let path = temp_dir.path().join(name);
+            std::fs::write(&path, "secret").expect("create blocked file");
+            AbsolutePathBuf::from_absolute_path(path).expect("absolute blocked file")
+        });
+        let mut entries = vec![FileSystemSandboxEntry::new(
+            FileSystemPath::Special {
+                value: FileSystemSpecialPath::Root,
             },
-            FileSystemSandboxEntry {
-                path: blocked_file.clone().into(),
-                access: FileSystemAccessMode::Deny,
-                missing_path_behavior: None,
-            },
-        ]);
-
-        let args = create_filesystem_args(&policy, temp_dir.path(), BwrapOptions::default())
-            .expect("filesystem args");
-        let blocked_file_str = path_to_string(blocked_file.as_path());
-
-        assert_eq!(args.preserved_files.len(), 1);
-        assert!(args.synthetic_mount_targets.is_empty());
-        assert!(args.args.windows(5).any(|window| {
-            window[0] == "--perms"
-                && window[1] == "000"
-                && window[2] == "--ro-bind-data"
-                && window[4] == blocked_file_str
+            FileSystemAccessMode::Read,
+        )];
+        entries.extend(blocked_files.iter().map(|path| {
+            FileSystemSandboxEntry::new(path.clone().into(), FileSystemAccessMode::Deny)
         }));
+        let policy = FileSystemSandboxPolicy::restricted(entries);
+
+        let args =
+            create_filesystem_args(&policy, temp_dir.path(), BwrapOptions::default())
+                .expect("filesystem args");
+        assert_eq!(args.preserved_files.len(), blocked_files.len());
+        assert!(args.synthetic_mount_targets.is_empty());
+        let masks = args
+            .args
+            .windows(5)
+            .filter(|window| window[2] == "--ro-bind-data")
+            .map(<[String]>::to_vec)
+            .collect::<Vec<_>>();
+        let expected_masks = args
+            .preserved_files
+            .iter()
+            .zip(&blocked_files)
+            .map(|(file, path)| {
+                vec![
+                    "--perms".to_string(),
+                    "000".to_string(),
+                    "--ro-bind-data".to_string(),
+                    file.as_raw_fd().to_string(),
+                    path_to_string(path.as_path()),
+                ]
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(masks, expected_masks);
     }
 
     #[test]
