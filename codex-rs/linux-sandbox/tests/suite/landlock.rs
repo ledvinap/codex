@@ -1319,6 +1319,70 @@ async fn sandbox_blocks_explicit_split_policy_carveouts_under_bwrap() {
 }
 
 #[tokio::test]
+async fn sandbox_starts_with_multiple_denied_files() {
+    if should_skip_bwrap_tests().await {
+        eprintln!("skipping bwrap test: bwrap sandbox prerequisites are unavailable");
+        return;
+    }
+
+    let temp = tempfile::tempdir().expect("tempdir");
+    std::fs::write(temp.path().join("AGENTS.md"), "project instructions\n")
+        .expect("write instructions");
+    let blocked_files = ["blocked-a.txt", "blocked-b.txt"].map(|name| {
+        let path = temp.path().join(name);
+        std::fs::write(&path, "fixture contents").expect("write denied file");
+        AbsolutePathBuf::try_from(path).expect("absolute denied file")
+    });
+    let cwd = AbsolutePathBuf::try_from(temp.path()).expect("absolute workspace");
+    let mut entries = vec![
+        FileSystemSandboxEntry::new(
+            FileSystemPath::Special {
+                value: FileSystemSpecialPath::Root,
+            },
+            FileSystemAccessMode::Read,
+        ),
+        FileSystemSandboxEntry::new(cwd.clone().into(), FileSystemAccessMode::Write),
+    ];
+    entries.extend(
+        blocked_files.iter().map(|path| {
+            FileSystemSandboxEntry::new(path.clone().into(), FileSystemAccessMode::Deny)
+        }),
+    );
+    let policy = FileSystemSandboxPolicy::restricted(entries);
+    let output = run_cmd_result_with_permission_profile_for_cwd(
+        &[
+            "sh",
+            "-c",
+            r#"set -e
+cat AGENTS.md
+for file in blocked-a.txt blocked-b.txt; do
+    if cat "$file"; then exit 1; fi
+    if (printf modified > "$file"); then exit 1; fi
+done
+printf 'command completed\n'
+"#,
+        ],
+        cwd,
+        PermissionProfile::from_runtime_permissions(&policy, NetworkSandboxPolicy::Enabled),
+        create_env_from_core_vars(),
+        LONG_TIMEOUT_MS,
+        /*use_legacy_landlock*/ false,
+    )
+    .await
+    .expect("sandbox should start with multiple denied files");
+    assert_eq!(
+        (output.exit_code, output.stdout.text.as_str()),
+        (0, "project instructions\ncommand completed\n"),
+        "stderr: {}",
+        output.stderr.text
+    );
+    assert_eq!(
+        blocked_files.map(|path| std::fs::read_to_string(path).expect("read host fixture")),
+        ["fixture contents", "fixture contents"]
+    );
+}
+
+#[tokio::test]
 async fn sandbox_starts_with_denied_tmp_without_exposing_registry() {
     if should_skip_bwrap_tests().await {
         eprintln!("skipping bwrap test: bwrap sandbox prerequisites are unavailable");
