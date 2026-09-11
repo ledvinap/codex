@@ -470,7 +470,7 @@ fn create_filesystem_args(
         .filter(|root| {
             root.is_file()
                 && canonical_target_if_symlinked_path(root).is_none()
-                && !file_system_sandbox_policy.can_write_path_with_cwd(root, cwd)
+                && !file_system_sandbox_policy.can_write_local_path_with_cwd(root, cwd)
                 && unreadable_roots
                     .iter()
                     .any(|denied| *root != denied && root.starts_with(denied))
