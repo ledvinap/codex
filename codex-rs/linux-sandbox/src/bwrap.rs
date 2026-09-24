@@ -2818,9 +2818,8 @@ mod tests {
         }));
         let policy = FileSystemSandboxPolicy::restricted(entries);
 
-        let args =
-            create_filesystem_args(&policy, temp_dir.path(), BwrapOptions::default())
-                .expect("filesystem args");
+        let args = create_filesystem_args(&policy, temp_dir.path(), BwrapOptions::default())
+            .expect("filesystem args");
         assert_eq!(args.preserved_files.len(), blocked_files.len());
         assert!(args.synthetic_mount_targets.is_empty());
         let masks = args
