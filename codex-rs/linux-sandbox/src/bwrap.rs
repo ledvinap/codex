@@ -765,6 +765,7 @@ fn create_filesystem_args(
         bwrap_args.args.push("--ro-bind".to_string());
         bwrap_args.args.push(path_to_string(&root));
         bwrap_args.args.push(path_to_string(&root));
+        append_daemon_socket_mask(&mut bwrap_args.args, &root, &daemon_directory)?;
     }
 
     if options.mask_wslg_distro
