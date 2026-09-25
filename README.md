@@ -1,3 +1,20 @@
+# Unofficial Linux sandbox patches
+
+This branch is based on Codex **0.157.0** and carries fixes for Linux sandbox
+failures involving regular-file permissions and multiple denied files. It is
+available as a temporary workaround until an upstream release includes equivalent
+fixes.
+
+I follow official Codex releases and use Codex to port these patches forward to
+newer released versions.
+
+**Use at your own risk.**
+
+To use these patches, [build this branch from source](scripts/codex_package/README.md).
+The installation commands below install official Codex builds.
+
+---
+
 <p align="center"><strong>Codex CLI</strong> is a coding agent from OpenAI that runs locally on your computer.
 <p align="center">
   <img src="https://github.com/openai/codex/blob/main/.github/codex-cli-splash.png" alt="Codex CLI splash" width="80%" />
