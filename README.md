@@ -13,6 +13,12 @@ Local validation: 206 sandbox tests passed on Linux. **Use at your own risk.**
 To use these patches, [build this branch from source](scripts/codex_package/README.md).
 The installation commands below install official Codex builds.
 
+If a shared background server is already installed, also run
+`codex app-server daemon update --from-cli` after installing this build. This
+copies and pins the patched package; confirming the command restarts a running
+daemon. Without that pin, the daemon's automatic updater can replace the patches
+with an official build.
+
 ---
 
 <p align="center"><strong>Codex CLI</strong> is a coding agent from OpenAI that runs locally on your computer.
