@@ -8,7 +8,7 @@ fixes.
 I follow official Codex releases and use Codex to port these patches forward to
 newer released versions.
 
-**Use at your own risk.**
+Local validation: 206 sandbox tests passed on Linux. **Use at your own risk.**
 
 To use these patches, [build this branch from source](scripts/codex_package/README.md).
 The installation commands below install official Codex builds.
