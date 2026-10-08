@@ -511,6 +511,10 @@ fn create_filesystem_args(
     unreadable_roots.sort();
     unreadable_roots.dedup();
 
+    let denied_symlink_targets: Vec<PathBuf> = unreadable_roots
+        .iter()
+        .filter_map(|root| canonical_target_if_symlinked_path(root))
+        .collect();
     let mut readable_roots: BTreeSet<PathBuf> = file_system_sandbox_policy
         .get_readable_roots_with_cwd(cwd)
         .into_iter()
@@ -535,6 +539,10 @@ fn create_filesystem_args(
             root.is_file()
                 && canonical_target_if_symlinked_path(root).is_none()
                 && !file_system_sandbox_policy.can_write_local_path_with_cwd(root, cwd)
+                // Preserve existing masks on denied aliases of the file or its parents.
+                && !denied_symlink_targets
+                    .iter()
+                    .any(|target| root.starts_with(target))
                 && unreadable_roots
                     .iter()
                     .any(|denied| *root != denied && root.starts_with(denied))
@@ -838,7 +846,11 @@ fn create_filesystem_args(
         )?;
     }
 
-    for root in readable_files {
+    // Exact deny masks, including expanded globs, must survive the read-only rebinds.
+    for root in readable_files
+        .into_iter()
+        .filter(|root| !unreadable_paths.contains(root))
+    {
         bwrap_args.args.push("--ro-bind".to_string());
         bwrap_args.args.push(path_to_string(&root));
         bwrap_args.args.push(path_to_string(&root));
