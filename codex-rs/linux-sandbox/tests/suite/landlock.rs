@@ -1460,7 +1460,7 @@ test ! -e "$registry"
 }
 
 #[tokio::test]
-async fn sandbox_denials_override_exact_file_grants_under_denied_parent() {
+async fn sandbox_deny_glob_overrides_exact_file_grants_under_denied_parent() {
     if should_skip_bwrap_tests().await {
         eprintln!("skipping bwrap test: bwrap sandbox prerequisites are unavailable");
         return;
@@ -1478,75 +1478,68 @@ async fn sandbox_denials_override_exact_file_grants_under_denied_parent() {
     std::fs::write(&target, "target\n").expect("write target");
     std::fs::write(&sibling, "sibling\n").expect("write sibling");
 
-    for denial in [
-        FileSystemPath::GlobPattern {
-            pattern: format!("{}/*.toml", parent.display()),
-        },
-        AbsolutePathBuf::from_absolute_path(&file_alias)
-            .expect("absolute file alias")
-            .into(),
-        AbsolutePathBuf::from_absolute_path(&directory_alias)
-            .expect("absolute directory alias")
-            .into(),
-    ] {
-        for access in [FileSystemAccessMode::Read, FileSystemAccessMode::Write] {
-            let policy = FileSystemSandboxPolicy::restricted(vec![
-                FileSystemSandboxEntry::new(
-                    FileSystemPath::Special {
-                        value: FileSystemSpecialPath::Root,
-                    },
-                    FileSystemAccessMode::Read,
-                ),
-                FileSystemSandboxEntry::new(
-                    AbsolutePathBuf::from_absolute_path(&parent)
-                        .expect("absolute parent")
-                        .into(),
-                    FileSystemAccessMode::Deny,
-                ),
-                FileSystemSandboxEntry::new(
-                    AbsolutePathBuf::from_absolute_path(&target)
-                        .expect("absolute target")
-                        .into(),
-                    access,
-                ),
-                FileSystemSandboxEntry::new(denial.clone(), FileSystemAccessMode::Deny),
-            ]);
-            let output = run_cmd_result_with_permission_profile(
-                &[
-                    "sh",
-                    "-c",
-                    r#"set -e
+    let denial = FileSystemPath::GlobPattern {
+        pattern: format!("{}/*.toml", parent.display()),
+    };
+    // Explicitly denied aliases retain the existing fail-closed startup behavior;
+    // their mask ordering is covered by bwrap_file_root_tests.rs.
+    for access in [FileSystemAccessMode::Read, FileSystemAccessMode::Write] {
+        let policy = FileSystemSandboxPolicy::restricted(vec![
+            FileSystemSandboxEntry::new(
+                FileSystemPath::Special {
+                    value: FileSystemSpecialPath::Root,
+                },
+                FileSystemAccessMode::Read,
+            ),
+            FileSystemSandboxEntry::new(
+                AbsolutePathBuf::from_absolute_path(&parent)
+                    .expect("absolute parent")
+                    .into(),
+                FileSystemAccessMode::Deny,
+            ),
+            FileSystemSandboxEntry::new(
+                AbsolutePathBuf::from_absolute_path(&target)
+                    .expect("absolute target")
+                    .into(),
+                access,
+            ),
+            FileSystemSandboxEntry::new(denial.clone(), FileSystemAccessMode::Deny),
+        ]);
+        let output = run_cmd_result_with_permission_profile(
+            &[
+                "sh",
+                "-c",
+                r#"set -e
 for target in "$1" "$3" "$4/config.toml"; do
     if cat "$target" 2>/dev/null; then exit 41; fi
     if { printf 'forbidden\n' > "$target"; } 2>/dev/null; then exit 42; fi
 done
 if cat "$2" 2>/dev/null || ls "${1%/*}" 2>/dev/null; then exit 43; fi"#,
-                    "sh",
-                    target.to_str().expect("target path"),
-                    sibling.to_str().expect("sibling path"),
-                    file_alias.to_str().expect("file alias path"),
-                    directory_alias.to_str().expect("directory alias path"),
-                ],
-                PermissionProfile::from_runtime_permissions(&policy, NetworkSandboxPolicy::Enabled),
-                LONG_TIMEOUT_MS,
-                /*use_legacy_landlock*/ false,
-            )
-            .await
-            .expect("sandbox with overlapping grant and denial should execute");
-            assert_eq!(
-                (output.exit_code, output.stdout.text.as_str()),
-                (0, ""),
-                "denial: {denial:?}, access: {access:?}, stderr: {}",
-                output.stderr.text
-            );
-            assert_eq!(
-                (
-                    std::fs::read_to_string(&target).expect("read target"),
-                    std::fs::read_to_string(&sibling).expect("read sibling"),
-                ),
-                ("target\n".to_string(), "sibling\n".to_string())
-            );
-        }
+                "sh",
+                target.to_str().expect("target path"),
+                sibling.to_str().expect("sibling path"),
+                file_alias.to_str().expect("file alias path"),
+                directory_alias.to_str().expect("directory alias path"),
+            ],
+            PermissionProfile::from_runtime_permissions(&policy, NetworkSandboxPolicy::Enabled),
+            LONG_TIMEOUT_MS,
+            /*use_legacy_landlock*/ false,
+        )
+        .await
+        .expect("sandbox with overlapping grant and denial should execute");
+        assert_eq!(
+            (output.exit_code, output.stdout.text.as_str()),
+            (0, ""),
+            "denial: {denial:?}, access: {access:?}, stderr: {}",
+            output.stderr.text
+        );
+        assert_eq!(
+            (
+                std::fs::read_to_string(&target).expect("read target"),
+                std::fs::read_to_string(&sibling).expect("read sibling"),
+            ),
+            ("target\n".to_string(), "sibling\n".to_string())
+        );
     }
 }
 
