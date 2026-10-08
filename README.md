@@ -8,7 +8,10 @@ fixes.
 I follow official Codex releases and use Codex to port these patches forward to
 newer released versions.
 
-Validation for this release is in progress. **Use at your own risk.**
+The Linux sandbox suite passed locally: **230 passed, 3 skipped**. An x86_64
+Linux release package was built and smoke-tested. **Use at your own risk.**
+
+Explicitly denied symlink aliases can still prevent sandbox startup.
 
 To use these patches, [build this branch from source](scripts/codex_package/README.md).
 The installation commands below install official Codex builds.
