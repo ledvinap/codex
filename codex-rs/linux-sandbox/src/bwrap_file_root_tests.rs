@@ -9,6 +9,124 @@ use codex_utils_absolute_path::AbsolutePathBuf;
 use pretty_assertions::assert_eq;
 
 #[test]
+fn deny_glob_wins_over_exact_file_grants_below_denied_parent() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    let parent = temp.path().join("private");
+    std::fs::create_dir(&parent).expect("create parent");
+    let target = parent.join("config.toml");
+    std::fs::write(&target, "fixture").expect("write fixture");
+
+    for access in [FileSystemAccessMode::Read, FileSystemAccessMode::Write] {
+        let policy = FileSystemSandboxPolicy::restricted(vec![
+            FileSystemSandboxEntry::new(
+                FileSystemPath::Special {
+                    value: FileSystemSpecialPath::Root,
+                },
+                FileSystemAccessMode::Read,
+            ),
+            FileSystemSandboxEntry::new(
+                AbsolutePathBuf::from_absolute_path(&parent)
+                    .expect("absolute parent")
+                    .into(),
+                FileSystemAccessMode::Deny,
+            ),
+            FileSystemSandboxEntry::new(
+                AbsolutePathBuf::from_absolute_path(&target)
+                    .expect("absolute file")
+                    .into(),
+                access,
+            ),
+            FileSystemSandboxEntry::new(
+                FileSystemPath::GlobPattern {
+                    pattern: format!("{}/*.toml", parent.display()),
+                },
+                FileSystemAccessMode::Deny,
+            ),
+        ]);
+        let args = create_filesystem_args(&policy, temp.path(), BwrapOptions::default())
+            .expect("filesystem arguments");
+        let target = target.display().to_string();
+        let placeholder_index = args
+            .args
+            .windows(3)
+            .position(|window| window == ["--ro-bind", "/dev/null", &target])
+            .expect("file target must exist before the denied parent becomes read-only");
+        let mask_index = args
+            .args
+            .windows(5)
+            .position(|window| {
+                window[0] == "--perms"
+                    && window[1] == "000"
+                    && window[2] == "--ro-bind-data"
+                    && window[4] == target
+            })
+            .expect("glob must mask the exact file");
+        assert!(placeholder_index < mask_index, "access: {access:?}");
+        assert!(
+            !args.args.windows(3).enumerate().any(|(index, window)| {
+                index > mask_index
+                    && matches!(window[0].as_str(), "--bind" | "--ro-bind")
+                    && window[1] == target
+                    && window[2] == target
+            }),
+            "file must remain masked after all grants, access: {access:?}, args: {:?}",
+            args.args
+        );
+    }
+}
+
+#[test]
+fn denied_aliases_do_not_reopen_readable_files_below_denied_parent() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    let parent = temp.path().join("private");
+    std::fs::create_dir(&parent).expect("create parent");
+    let target = parent.join("config.toml");
+    std::fs::write(&target, "fixture").expect("write fixture");
+
+    for (name, alias_target) in [("file-link", &target), ("directory-link", &parent)] {
+        let alias = temp.path().join(name);
+        std::os::unix::fs::symlink(alias_target, &alias).expect("create denied alias");
+        let policy = FileSystemSandboxPolicy::restricted(vec![
+            FileSystemSandboxEntry::new(
+                FileSystemPath::Special {
+                    value: FileSystemSpecialPath::Root,
+                },
+                FileSystemAccessMode::Read,
+            ),
+            FileSystemSandboxEntry::new(
+                AbsolutePathBuf::from_absolute_path(&parent)
+                    .expect("absolute parent")
+                    .into(),
+                FileSystemAccessMode::Deny,
+            ),
+            FileSystemSandboxEntry::new(
+                AbsolutePathBuf::from_absolute_path(&target)
+                    .expect("absolute file")
+                    .into(),
+                FileSystemAccessMode::Read,
+            ),
+            FileSystemSandboxEntry::new(
+                AbsolutePathBuf::from_absolute_path(&alias)
+                    .expect("absolute alias")
+                    .into(),
+                FileSystemAccessMode::Deny,
+            ),
+        ]);
+        let args = create_filesystem_args(&policy, temp.path(), BwrapOptions::default())
+            .expect("filesystem arguments");
+        let target = target.display().to_string();
+        assert!(
+            !args.args.windows(3).any(|window| {
+                window == ["--ro-bind", &target, &target]
+                    || window == ["--ro-bind", "/dev/null", &target]
+            }),
+            "denied alias must not be reopened through a file or placeholder, alias: {name}, args: {:?}",
+            args.args
+        );
+    }
+}
+
+#[test]
 fn writable_file_root_has_no_metadata_descendants() {
     let temp = tempfile::tempdir().expect("tempdir");
     let target = temp.path().join("config.toml");
