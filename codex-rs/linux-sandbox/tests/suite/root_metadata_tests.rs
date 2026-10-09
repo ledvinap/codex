@@ -35,6 +35,13 @@ async fn root_metadata_symlinks_cannot_reopen_approved_denials() {
     fs::write(private.join("sibling"), "sibling").unwrap();
     codex_utils_cargo_bin::copy_executable(&codex_linux_sandbox_exe(), &work.join("sandbox"))
         .unwrap();
+    // UID 0 cannot trust root-owned PATH helpers; provide the packaged fallback.
+    fs::create_dir(work.join("codex-resources")).unwrap();
+    codex_utils_cargo_bin::copy_executable(
+        &codex_utils_cargo_bin::cargo_bin("bwrap").unwrap(),
+        &work.join("codex-resources/bwrap"),
+    )
+    .unwrap();
 
     let path_entry = |path: &str, access| {
         FileSystemSandboxEntry::new(
