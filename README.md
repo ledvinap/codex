@@ -9,6 +9,8 @@ I follow official Codex releases and use Codex to port these patches forward to
 newer released versions.
 
 The separate multiple-denied-files startup fix is included upstream in 0.162.0.
+
+The Linux sandbox suite passed locally: **235 passed, 3 skipped**.
 **Use at your own risk.**
 
 Explicitly denied symlink aliases can still prevent sandbox startup.
