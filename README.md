@@ -1,6 +1,6 @@
 # Unofficial Linux sandbox patches
 
-This branch is based on Codex **0.162.1** and carries fixes for regular-file
+This branch is based on Codex **0.163.0** and carries fixes for regular-file
 read/write grants beneath denied directories while preserving deny masks. It is
 available as a temporary workaround until an upstream release includes equivalent
 fixes.
