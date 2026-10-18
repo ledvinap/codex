@@ -10,7 +10,7 @@ newer released versions.
 
 The separate multiple-denied-files startup fix is included upstream in 0.162.0.
 
-The Linux sandbox suite passed on **0.162.0**: **235 passed, 3 skipped**.
+The Linux sandbox suite passed on **0.163.0**: **235 passed, 3 skipped**.
 **Use at your own risk.**
 
 Explicitly denied symlink aliases can still prevent sandbox startup.
