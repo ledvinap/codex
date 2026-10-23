@@ -24,6 +24,7 @@ use std::fs::Metadata;
 use std::io;
 use std::os::fd::AsRawFd;
 use std::os::unix::ffi::OsStringExt;
+use std::os::unix::fs::FileTypeExt;
 use std::os::unix::fs::MetadataExt;
 use std::path::Path;
 use std::path::PathBuf;
@@ -402,6 +403,7 @@ fn create_bwrap_flags(
 /// 4. `--bind <root> <root>` re-enables writes for allowed roots, including
 ///    writable subpaths under `/dev` (for example, `/dev/shm`). Binding `/`
 ///    recreates the minimal `/dev` before applying any carveouts below it.
+///    Explicit character-device roots use `--dev-bind` to avoid adding `nodev`.
 /// 5. `--ro-bind <subpath> <subpath>` re-applies read-only protections under
 ///    those writable roots so protected subpaths win.
 /// 6. Nested unreadable carveouts under a writable root are masked after that
@@ -685,7 +687,17 @@ fn create_filesystem_args(
         let redundant_root_alias =
             binds_file_system_root && root != Path::new("/") && mount_root == Path::new("/");
         if !redundant_root_alias {
-            bwrap_args.args.push("--bind".to_string());
+            let is_character_device = fs::metadata(mount_root)?.file_type().is_char_device();
+            // Only an explicit device root may retain device access. Directory
+            // binds must still add nodev, and inherited nodev remains in force.
+            bwrap_args.args.push(
+                if is_character_device {
+                    "--dev-bind"
+                } else {
+                    "--bind"
+                }
+                .to_string(),
+            );
             bwrap_args.args.push(path_to_string(mount_root));
             bwrap_args.args.push(path_to_string(mount_root));
             if mount_root == Path::new("/") {
@@ -1599,6 +1611,10 @@ mod wslg_tests;
 #[cfg(test)]
 #[path = "bwrap_file_root_tests.rs"]
 mod file_root_tests;
+
+#[cfg(test)]
+#[path = "bwrap_device_tests.rs"]
+mod device_tests;
 
 #[cfg(test)]
 #[path = "bwrap_tests.rs"]
