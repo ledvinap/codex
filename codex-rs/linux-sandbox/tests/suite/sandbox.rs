@@ -636,6 +636,32 @@ async fn bwrap_populates_minimal_dev_nodes() {
 }
 
 #[tokio::test]
+async fn bwrap_explicit_character_device_grant_allows_open() {
+    if should_skip_bwrap_tests().await {
+        eprintln!("skipping bwrap test: bwrap sandbox prerequisites are unavailable");
+        return;
+    }
+
+    // A regular bind exposes the character node but makes open fail with EACCES
+    // because of nodev. /dev/null exercises this without touching serial hardware.
+    let output = run_cmd_result_with_writable_roots(
+        &[
+            "bash",
+            "-lc",
+            "test -c /dev/null && printf device-grant > /dev/null && test ! -e /dev/mem",
+        ],
+        &[PathBuf::from("/dev/null")],
+        LONG_TIMEOUT_MS,
+        /*use_legacy_landlock*/ false,
+        /*network_access*/ true,
+    )
+    .await
+    .expect("sandboxed command should execute");
+
+    assert_eq!(output.exit_code, 0, "{}", output.stderr.text);
+}
+
+#[tokio::test]
 async fn bwrap_preserves_writable_dev_shm_bind_mount() {
     if should_skip_bwrap_tests().await {
         eprintln!("skipping bwrap test: bwrap sandbox prerequisites are unavailable");
