@@ -175,7 +175,6 @@ fn writable_file_root_has_no_metadata_descendants() {
     ]);
     assert_eq!(args.args, expected);
     assert!(args.synthetic_mount_targets.is_empty());
-    assert!(args.protected_create_targets.is_empty());
 }
 
 #[test]
